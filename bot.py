@@ -289,7 +289,7 @@ class TalkQueue(commands.Cog):
     if member in self.queue:
       msg = '%s is %d/%d' % (member.display_name, self.queue.index(member) + 1, len(self.queue))
     else:
-      msg = '%s is not in the queue; length: %d' % ((member.display_name, len(self.queue))
+      msg = '%s is not in the queue; length: %d' % (member.display_name, len(self.queue))
     await self.printSend(ctx, 'Queue (%s): %s' % (msg, ', '.join(m)))
 
 
