@@ -279,12 +279,18 @@ class TalkQueue(commands.Cog):
   async def queue(self, ctx, *args):
     """Display the queue."""
     self.assertIsRunningChannel(ctx)
+    member = ctx.author
 
     queue = self.queue[:2]
     if ' all' in ctx.message.content:
       queue = self.queue
     m = [n.display_name for n in queue]
-    await self.printSend(ctx, 'Queue (%d long): %s' % (len(self.queue), ', '.join(m)))
+
+    if member in self.queue:
+      msg = '%s is %d/%d' % (member.display_name, self.queue.index(member) + 1, len(self.queue))
+    else:
+      msg = '%s is not in the queue; length: %d' % ((member.display_name, len(self.queue))
+    await self.printSend(ctx, 'Queue (%s): %s' % (msg, ', '.join(m)))
 
 
 def main():
