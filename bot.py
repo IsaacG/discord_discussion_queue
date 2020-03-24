@@ -23,20 +23,30 @@ HELP_REMOVE = '(mods) Remove users from the queue.'
 HELP_MOVE = '(mods) Move user to a specified position in the queue.'
 
 
-async def printSend(ctx, msg):
-  """Print a message and send it to Discord."""
-  print(msg)
-  await ctx.send(msg)
-
-
 class TalkQueue(commands.Cog):
   """Provide a voice queue where only one person can talk at a time."""
 
   def __init__(self):
     super(TalkQueue, self).__init__()
     self.running = False
+    self.muted = set()
 
   # Helper methods
+
+  async def mute(self, member):
+    """Mute a member."""
+    if not member.voice or member.voice.mute:
+      return
+    await member.edit(mute=True)
+    self.muted.add(member)
+
+  async def unmute(self, member):
+    """Unmute a member."""
+    if not member.voice or not member.voice.mute:
+      return
+    await member.edit(mute=False)
+    if member in self.muted:
+      self.muted.remove(member)
 
   def setTopic(self, ctx):
     """Set the topic from a context."""
@@ -44,20 +54,25 @@ class TalkQueue(commands.Cog):
     if ' ' in msg:
       self.topic = msg[msg.index(' ') + 1:]
 
+  async def printSend(self, ctx, msg):
+    """Print a message and send it to Discord."""
+    print(msg)
+    await ctx.send(msg)
+
   async def setActive(self, ctx, member):
     """Set a member to the active talker, unmuting them."""
     if not member.voice:
       print('Member %s is not on voice' % member.display_name)
       return False
 
-    await member.edit(mute=False)
+    await self.unmute(member)
     self.active = member
     msg = '%s is now  active' % member.mention
     if self.topic:
       msg += ' (topic: %s)' % self.topic
     if self.queue:
       msg += '. %s is next up.' % self.queue[0].mention
-    await printSend(ctx, msg)
+    await self.printSend(ctx, msg)
     return True
 
   def isMod(self, ctx, member=None):
@@ -101,14 +116,19 @@ class TalkQueue(commands.Cog):
     If someone enters a channel and there is no discussion happening but
     they are somehow muted (eg got muted and left), unmute them.
     """
-    if self.running:
-      if not before.channel and after.channel:
-        if after.channel == self.voice_channel:
-          print('%s joined voice; mute' % member.display_name)
-          await member.edit(mute=True)
-    else:
-      if not before.channel and after.channel and after.mute:
-        member.edit(mute=False)
+    # Ignore unless this is a join.
+    if not (before.channel is None and after.channel is not None):
+      return
+
+    # Is muted on join
+    if after.mute:
+      # Discussion is not running or joined a different channel
+      if not self.running or after.channel != self.voice_channel:
+        await self.unmute(member)
+
+    if self.running and after.channel == self.voice_channel:
+      print('%s joined voice; mute' % member.display_name)
+      await self.mute(member)
 
   @commands.command(help=HELP_ADD)
   async def add(self, ctx, *args):
@@ -176,7 +196,7 @@ class TalkQueue(commands.Cog):
       print('Cannot start discusion; already running one.')
       return
     if not member.voice:
-      await printSend(ctx, 'You must be in a voice channel to start a discussion.')
+      await self.printSend(ctx, 'You must be in a voice channel to start a discussion.')
       return
 
     self.running = True
@@ -191,7 +211,7 @@ class TalkQueue(commands.Cog):
 
     print('Starting the discussion. Mute all members.')
     for member in self.voice_channel.members:
-      await member.edit(mute=True)
+      await self.mute(member)
 
   @commands.command(help=HELP_END)
   async def end(self, ctx, *args):
@@ -199,9 +219,9 @@ class TalkQueue(commands.Cog):
     self.assertIsModAndRunning(ctx)
 
     self.running = False
-    print('Ending the discussion. Unmute everyone.')
-    for member in self.voice_channel.members:
-      await member.edit(mute=False)
+    print('Ending the discussion. Unmute everyone that I muted.')
+    for member in list(self.muted):
+      await self.unmute(member)
 
   @commands.command(help=HELP_JOIN)
   async def join(self, ctx, *args):
@@ -214,13 +234,13 @@ class TalkQueue(commands.Cog):
       await self.setActive(ctx, member)
     elif member == self.active:
       msg = '%s is already in the active speaker.' % member.display_name
-      await printSend(ctx, msg)
+      await self.printSend(ctx, msg)
     elif member in self.queue:
       msg = '%s is already in the queue (%d/%d).' % (member.display_name, self.queue.index(member) + 1, len(self.queue))
-      await printSend(ctx, msg)
+      await self.printSend(ctx, msg)
     else:
       self.queue.append(member)
-      await printSend(ctx, 'Added: %s (position %d)' % (member.display_name, len(self.queue)))
+      await self.printSend(ctx, 'Added: %s (position %d)' % (member.display_name, len(self.queue)))
 
   @commands.command(help=HELP_LEAVE)
   async def leave(self, ctx, *args):
@@ -231,7 +251,7 @@ class TalkQueue(commands.Cog):
     if member not in self.queue:
       return print('leave(): member not in queue')
     del self.queue[self.queue.index(member)]
-    printSend('Removed %s from the queue.' % member.display_name)
+    self.printSend('Removed %s from the queue.' % member.display_name)
 
   @commands.command(help=HELP_NEXT)
   async def next(self, ctx, *args):
@@ -242,10 +262,10 @@ class TalkQueue(commands.Cog):
     if not self.active:
       return print('next() but no one is active.')
     if self.active != member and not self.isMod(ctx):
-      return await printSend(ctx, '%s is not the active speaker' % member.display_name)
+      return await self.printSend(ctx, '%s is not the active speaker' % member.display_name)
 
     # Mute the active person that just did a !next
-    await self.active.edit(mute=True)
+    await self.mute(self.active)
     print('next(): mute %s' % self.active.display_name)
 
     while self.queue:
@@ -253,7 +273,7 @@ class TalkQueue(commands.Cog):
         break
     else:
       self.active = None
-      await printSend(ctx, 'No one left to speak.')
+      await self.printSend(ctx, 'No one left to speak.')
 
   @commands.command(help=HELP_QUEUE)
   async def queue(self, ctx, *args):
@@ -264,7 +284,7 @@ class TalkQueue(commands.Cog):
     if ' all' in ctx.message.content:
       queue = self.queue
     m = [n.display_name for n in queue]
-    await printSend(ctx, 'Queue (%d long): %s' % (len(self.queue), ', '.join(m)))
+    await self.printSend(ctx, 'Queue (%d long): %s' % (len(self.queue), ', '.join(m)))
 
 
 def main():
