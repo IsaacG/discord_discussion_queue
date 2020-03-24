@@ -22,9 +22,13 @@ HELP_ADD = '(mods) Add users to the queue.'
 HELP_REMOVE = '(mods) Remove users from the queue.'
 HELP_MOVE = '(mods) Move user to a specified position in the queue.'
 
+# TODO: Refactor the add/join/next code. add is wonky when there is no active speaker.
+# !round probably got the same issue.
 
 class TalkQueue(commands.Cog):
   """Provide a voice queue where only one person can talk at a time."""
+
+  qualified_name = 'Talk Queue'
 
   def __init__(self):
     super(TalkQueue, self).__init__()
@@ -70,10 +74,25 @@ class TalkQueue(commands.Cog):
     msg = '%s is now  active' % member.mention
     if self.topic:
       msg += ' (topic: %s)' % self.topic
-    if self.queue:
-      msg += '. %s is next up.' % self.queue[0].mention
+    msg += self.getQueue()
     await self.printSend(ctx, msg)
     return True
+
+  def getQueue(self, member=None, full=False):
+    """String output of the queue."""
+    q = []
+    q.append('Queue')
+    q.append('Current speaker: %s' % self.active.display_name)
+    if member:
+      if member in self.queue:
+        q.append('%s is #%d' % (member.display_name, self.queue.index(member) + 1))
+      else:
+        q.append('%s is not queued' % member.display_name)
+    if full:
+      q.append(', '.join(m.display_name for m in self.queue))
+    else:
+      q.append('Next 5: %s' % ', '.join(m.display_name for m in self.queue[:5]))
+    return ' | '.join(q)
 
   def isMod(self, ctx, member=None):
     """Check if a member (or ctx author) is a mod.
@@ -138,6 +157,7 @@ class TalkQueue(commands.Cog):
     for member in ctx.message.mentions:
       if member not in self.queue:
         self.queue.append(member)
+    await self.printSend(ctx, self.getQueue())
 
   @commands.command(help=HELP_REMOVE)
   async def remove(self, ctx, *args):
@@ -240,7 +260,7 @@ class TalkQueue(commands.Cog):
       await self.printSend(ctx, msg)
     else:
       self.queue.append(member)
-      await self.printSend(ctx, 'Added: %s (position %d)' % (member.display_name, len(self.queue)))
+      await self.printSend(ctx, 'Added: %s (position %d). %s' % (member.display_name, len(self.queue)), self.getQueue())
 
   @commands.command(help=HELP_LEAVE)
   async def leave(self, ctx, *args):
@@ -260,7 +280,7 @@ class TalkQueue(commands.Cog):
 
     member = ctx.author
     if not self.active:
-      return print('next() but no one is active.')
+      return await self.printSend(ctx, 'There is no one in the queue.')
     if self.active != member and not self.isMod(ctx):
       return await self.printSend(ctx, '%s is not the active speaker' % member.display_name)
 
@@ -273,24 +293,15 @@ class TalkQueue(commands.Cog):
         break
     else:
       self.active = None
-      await self.printSend(ctx, 'No one left to speak.')
+      return await self.printSend(ctx, 'There is no one in the queue.')
 
   @commands.command(help=HELP_QUEUE)
   async def queue(self, ctx, *args):
     """Display the queue."""
     self.assertIsRunningChannel(ctx)
-    member = ctx.author
 
-    queue = self.queue[:2]
-    if ' all' in ctx.message.content:
-      queue = self.queue
-    m = [n.display_name for n in queue]
-
-    if member in self.queue:
-      msg = '%s is %d/%d' % (member.display_name, self.queue.index(member) + 1, len(self.queue))
-    else:
-      msg = '%s is not in the queue; length: %d' % (member.display_name, len(self.queue))
-    await self.printSend(ctx, 'Queue (%s): %s' % (msg, ', '.join(m)))
+    msg = self.getQueue(ctx.author, ' all' in ctx.message.content)
+    await self.printSend(ctx, msg)
 
 
 def main():
