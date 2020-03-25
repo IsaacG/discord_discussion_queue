@@ -24,6 +24,10 @@ TalkQueue:
   remove (mods) Remove users from the queue.
   move   (mods) Move user to a specified position in the queue.
   round  (mods) Put everyone in the queue for a round robin.
+
+  open   (mods) Pause the queue, unmute everyone.
+  pause  (mods) Pause the queue, unmute mods.
+  resume (mods) Resume the speaking queue.
 ```
 
 ### Starting the discussion
