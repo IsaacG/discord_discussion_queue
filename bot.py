@@ -380,9 +380,9 @@ class TalkQueue(commands.Cog):
 
 def main():
   if sys.stdout.isatty():
-    logging.basicConfig(stream=sys.stdout, level=logging.WARNING)
+    logging.basicConfig(stream=sys.stdout, level=logging.INFO)
   else:
-    logging.basicConfig(filename='/tmp/discord_log.log', level=logging.INFO)
+    logging.basicConfig(stream=sys.stderr, level=logging.WARNING)
   dotenv.load_dotenv()
   bot = commands.Bot(command_prefix='!')
   bot.add_cog(TalkQueue())
