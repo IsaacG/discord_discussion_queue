@@ -3,7 +3,9 @@
 import discord
 import dotenv
 import enum
+import logging
 import os
+import sys
 
 from discord.ext import commands
 
@@ -70,35 +72,35 @@ class TalkQueue(commands.Cog):
     if ' ' in msg:
       self.topic = msg[msg.index(' ') + 1:]
 
-  async def printSend(self, ctx, msg):
-    """Print a message and send it to Discord."""
-    print(msg)
+  async def send(self, ctx, msg):
+    """Send a message to Discord, logging it."""
+    logging.info('send(%s)', msg)
     await ctx.send(msg)
 
   async def addToQueue(self, ctx, member, pos=None):
     if member == self.active:
       msg = '%s is already in the active speaker.' % member.display_name
-      await self.printSend(ctx, msg)
+      await self.send(ctx, msg)
     elif member in self.queue:
       msg = '%s is already in the queue (%d/%d).' % (member.display_name, self.queue.index(member) + 1, len(self.queue))
-      await self.printSend(ctx, msg)
+      await self.send(ctx, msg)
     else:
       if pos is None:
         pos = len(self.queue)
       self.queue.insert(pos, member)
       if self.active:
-        await self.printSend(ctx, 'Added: %s (position %d). %s' % (member.display_name, len(self.queue)), self.getQueue())
+        await self.send(ctx, 'Added: %s (position %d). %s' % (member.display_name, len(self.queue), self.getQueue()))
       await self.setActive(ctx)
 
   async def setActive(self, ctx):
     """Set a member to the active talker, unmuting them."""
     if self.active:
-      print('setActive(): already got someone active; nothing to do here.')
+      logging.info('setActive(): already got someone active; nothing to do here.')
 
     while self.queue:
       member = self.queue.pop(0)
       if not member.voice:
-        print('setActive(): member %s is not on voice' % member.display_name)
+        logging.info('setActive(%s): member is not on voice', member.display_name)
         continue
       self.active = member
       await self.unmute(member)
@@ -108,9 +110,10 @@ class TalkQueue(commands.Cog):
       if self.topic:
         msg.append('topic: %s' % self.topic)
       msg.append(self.getQueue())
-      await self.printSend(ctx, ' | '.join(msg))
+      await self.send(ctx, ' | '.join(msg))
+      return
     else:
-      await self.printSend(ctx, 'There is no one in the queue.')
+      await self.send(ctx, 'There is no one in the queue.')
       return
 
   def getQueue(self, member=None, full=False):
@@ -127,9 +130,9 @@ class TalkQueue(commands.Cog):
       else:
         q.append('%s is not queued' % member.display_name)
     if full:
-      q.append(', '.join(m.display_name for m in self.queue))
+      q.append('%d waiting: %s' % (len(self.queue), ', '.join(m.display_name for m in self.queue)))
     else:
-      q.append('Next 5: %s' % ', '.join(m.display_name for m in self.queue[:5]))
+      q.append('Next %d of %d: %s' % (min(len(self.queue), 5), len(self.queue), ', '.join(m.display_name for m in self.queue[:5])))
     return ' | '.join(q)
 
   def isMod(self, member):
@@ -147,6 +150,8 @@ class TalkQueue(commands.Cog):
 
   def assertIsMod(self, ctx, member=None):
     """Assert the author is a mod."""
+    if member is None:
+      member = ctx.author
     if not self.isMod(member):
       raise commands.checkfailure(
           '%s(%s): command may only be used by mods.',
@@ -170,6 +175,10 @@ class TalkQueue(commands.Cog):
           (ctx.command.name, ctx.author.display_name))
 
   @commands.Cog.listener()
+  async def on_error(self, event, *args, **kwargs):
+    logging.exception('Got an error.', exc_info=True)
+
+  @commands.Cog.listener()
   async def on_voice_state_update(self, member, before, after):
     """Manage server muting on changes.
 
@@ -188,7 +197,7 @@ class TalkQueue(commands.Cog):
         await self.unmute(member)
 
     if self.running and after.channel == self.voice_channel:
-      print('%s joined voice; mute' % member.display_name)
+      logging.info('%s joined voice; mute', member.display_name)
       await self.mute(member)
 
   @commands.command(help=HELP_ADD)
@@ -214,12 +223,15 @@ class TalkQueue(commands.Cog):
     self.assertIsModAndRunning(ctx)
 
     if len(ctx.message.mentions) != 1:
-      return print('move(): must mention exactly one person.')
+      logging.warning('move(%s): must mention exactly one person.', ctx.message.content)
+      return
     parts = ctx.message.content.split()
     if len(parts) != 3:
-      return print('move(): must contain 3 words.')
+      logging.warning('move(%s): must contain 3 words.', ctx.message.content)
+      return
     if not parts[-1].isnumeric():
-      return print('move(): must contain a numeric position.')
+      logging.warning('move(%s): must contain a numeric position.', ctx.message.content)
+      return
 
     pos = int(parts[-1])
     member = tx.message.mentions[0]
@@ -254,10 +266,10 @@ class TalkQueue(commands.Cog):
     """Start a discussion."""
     member = ctx.author
     if self.running:
-      print('Cannot start discusion; already running one.')
+      logging.warning('Cannot start discusion; already running one.')
       return
     if not member.voice:
-      await self.printSend(ctx, 'You must be in a voice channel to start a discussion.')
+      await self.send(ctx, 'You must be in a voice channel to start a discussion.')
       return
 
     self.running = State.RUNNING
@@ -270,7 +282,7 @@ class TalkQueue(commands.Cog):
 
     self.setTopic(ctx)
 
-    print('Starting the discussion. Mute all members.')
+    await self.send(ctx, 'Starting the discussion. Mute all members.')
     for member in self.voice_channel.members:
       await self.mute(member)
 
@@ -280,9 +292,10 @@ class TalkQueue(commands.Cog):
     self.assertIsModAndRunning(ctx)
 
     self.running = State.STOPPED
-    print('Ending the discussion. Unmute everyone that I muted.')
+    logging.info('Ending the discussion. Unmute everyone that I muted.')
     for member in list(self.muted):
       await self.unmute(member)
+    await self.send(ctx, 'The discussion is now closed.')
 
   @commands.command(help=HELP_JOIN)
   async def join(self, ctx, *args):
@@ -297,30 +310,31 @@ class TalkQueue(commands.Cog):
 
     member = ctx.author
     if member not in self.queue:
-      return print('leave(): member not in queue')
-    del self.queue[self.queue.index(member)]
-    self.printSend('Removed %s from the queue.' % member.display_name)
+      logging.info('leave(%s): member not in queue', member.display_name)
+    else:
+      del self.queue[self.queue.index(member)]
+      self.send('Removed %s from the queue.' % member.display_name)
 
   @commands.command(help=HELP_NEXT)
   async def next(self, ctx, *args):
     """Finish speaking and allow the next speaker."""
     self.assertIsRunningChannel(ctx)
     if self.running != State.RUNNING:
-      print('next(): state %r; do nothing' % self.running)
+      logging.info('next(): state %r; do nothing', self.running)
       return
 
     member = ctx.author
     if not self.active:
-      return await self.printSend(ctx, 'There is no one in the queue.')
+      return await self.send(ctx, 'There is no one in the queue.')
     if self.active != member and not self.isMod(ctx.author):
-      return await self.printSend(ctx, '%s is not the active speaker' % member.display_name)
+      return await self.send(ctx, '%s is not the active speaker' % member.display_name)
 
     # Mute the active person that just did a !next
     await self.mute(self.active)
+    logging.info('next(): mute %s', self.active.display_name)
     self.active = None
-    print('next(): mute %s' % self.active.display_name)
 
-    await self.setNextActive(ctx)
+    await self.setActive(ctx)
 
   @commands.command(help=HELP_QUEUE)
   async def queue(self, ctx, *args):
@@ -328,7 +342,7 @@ class TalkQueue(commands.Cog):
     self.assertIsRunningChannel(ctx)
 
     msg = self.getQueue(ctx.author, ' all' in ctx.message.content)
-    await self.printSend(ctx, msg)
+    await self.send(ctx, msg)
 
   @commands.command(help=HELP_PAUSE)
   async def pause(self, ctx, *args):
@@ -353,8 +367,8 @@ class TalkQueue(commands.Cog):
   async def resume(self, ctx, *args):
     """(mods) Resume the speaking queue."""
     self.assertIsRunningChannel(ctx)
-    if self.running != Start.PAUSED:
-      print('resume(): state %r; do nothing' % self.running)
+    if self.running != State.PAUSED:
+      logging.info('resume(): state %r; do nothing', self.running)
       return
     for member in self.voice_channel.members:
       await self.mute(member)
@@ -365,11 +379,14 @@ class TalkQueue(commands.Cog):
 
 
 def main():
+  if sys.stdout.isatty():
+    logging.basicConfig(stream=sys.stdout, level=logging.WARNING)
+  else:
+    logging.basicConfig(filename='/tmp/discord_log.log', level=logging.INFO)
   dotenv.load_dotenv()
   bot = commands.Bot(command_prefix='!')
   bot.add_cog(TalkQueue())
   bot.run(os.getenv('DISCORD_TOKEN'))
-
 
 
 if __name__ == '__main__':
