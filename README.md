@@ -76,3 +76,10 @@ Mods can also "go around the room" with the `round` command that puts everyone
 in the queue. This preserves the current queue, adding to the end of the queue
 first the mods then everyone else.
 
+### Pausing the queue (mods)
+
+Mods can pause the queue, temporarily freezing the active speaker and opening
+the floor to either just the mods (using `pause`) or to everyone (with `open`).
+When ready to continue the discussion, `resume` will restore things to how
+they were.
+

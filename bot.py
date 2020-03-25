@@ -2,6 +2,7 @@
 
 import discord
 import dotenv
+import enum
 import os
 
 from discord.ext import commands
@@ -21,6 +22,19 @@ HELP_TOPIC = '(mods) Set the topic.'
 HELP_ADD = '(mods) Add users to the queue.'
 HELP_REMOVE = '(mods) Remove users from the queue.'
 HELP_MOVE = '(mods) Move user to a specified position in the queue.'
+HELP_OPEN = '(mods) Pause the queue, unmute everyone.'
+HELP_PAUSE = '(mods) Pause the queue, unmute mods.'
+HELP_RESUME = '(mods) Resume the speaking queue.'
+
+
+class State(enum.Enum):
+  """The state of the discussion."""
+  STOPPED = enum.auto()
+  RUNNING = enum.auto()
+  PAUSED = enum.auto()
+
+  def __bool__(self):
+    return self != State.STOPPED
 
 
 class TalkQueue(commands.Cog):
@@ -30,7 +44,7 @@ class TalkQueue(commands.Cog):
 
   def __init__(self):
     super(TalkQueue, self).__init__()
-    self.running = False
+    self.running = State.STOPPED
     self.muted = set()
 
   # Helper methods
@@ -118,14 +132,12 @@ class TalkQueue(commands.Cog):
       q.append('Next 5: %s' % ', '.join(m.display_name for m in self.queue[:5]))
     return ' | '.join(q)
 
-  def isMod(self, ctx, member=None):
+  def isMod(self, member):
     """Check if a member (or ctx author) is a mod.
 
     Mods are either the person that started the discussion or
     members of the channel that got permission to manage channel messages.
     """
-    if member is None:
-      member = ctx.author
     return self.host == member or member.permissions_in(self.text_channel).manage_messages
 
   def assertIsModAndRunning(self, ctx):
@@ -135,10 +147,16 @@ class TalkQueue(commands.Cog):
 
   def assertIsMod(self, ctx, member=None):
     """Assert the author is a mod."""
-    if not self.isMod(ctx, member):
+    if not self.isMod(member):
       raise commands.checkfailure(
           '%s(%s): command may only be used by mods.',
           (ctx.command.name, member.display_name))
+
+  def assertNotPaused(self, ctx):
+    if self.running == State.PAUSED:
+      raise commands.CheckFailure(
+          '%s(%s): TalkQueue is paused.',
+          (ctx.command.name, ctx.author.display_name))
 
   def assertIsRunningChannel(self, ctx):
     """Assert the queue is active and in this channel."""
@@ -224,7 +242,7 @@ class TalkQueue(commands.Cog):
     self.assertIsModAndRunning(ctx)
 
     for member in self.voice_channel.members:
-      if member not in self.queue and self.isMod(ctx, member):
+      if member not in self.queue and self.isMod(member):
         self.queue.append(member)
     for member in self.voice_channel.members:
       if member not in self.queue:
@@ -242,7 +260,7 @@ class TalkQueue(commands.Cog):
       await self.printSend(ctx, 'You must be in a voice channel to start a discussion.')
       return
 
-    self.running = True
+    self.running = State.RUNNING
     self.queue = []
     self.active = None
     self.topic = None
@@ -261,7 +279,7 @@ class TalkQueue(commands.Cog):
     """End the discussion."""
     self.assertIsModAndRunning(ctx)
 
-    self.running = False
+    self.running = State.STOPPED
     print('Ending the discussion. Unmute everyone that I muted.')
     for member in list(self.muted):
       await self.unmute(member)
@@ -287,11 +305,14 @@ class TalkQueue(commands.Cog):
   async def next(self, ctx, *args):
     """Finish speaking and allow the next speaker."""
     self.assertIsRunningChannel(ctx)
+    if self.running != State.RUNNING:
+      print('next(): state %r; do nothing' % self.running)
+      return
 
     member = ctx.author
     if not self.active:
       return await self.printSend(ctx, 'There is no one in the queue.')
-    if self.active != member and not self.isMod(ctx):
+    if self.active != member and not self.isMod(ctx.author):
       return await self.printSend(ctx, '%s is not the active speaker' % member.display_name)
 
     # Mute the active person that just did a !next
@@ -308,6 +329,39 @@ class TalkQueue(commands.Cog):
 
     msg = self.getQueue(ctx.author, ' all' in ctx.message.content)
     await self.printSend(ctx, msg)
+
+  @commands.command(help=HELP_PAUSE)
+  async def pause(self, ctx, *args):
+    """(mods) Pause the queue, unmute mods."""
+    self.assertIsRunningChannel(ctx)
+    self.running = State.PAUSED
+    for member in list(self.muted):
+      if self.isMod(member):
+        await self.unmute(member)
+      else:
+        await self.mute(member)
+
+  @commands.command(help=HELP_OPEN)
+  async def open(self, ctx, *args):
+    """(mods) Pause the queue, unmute everyone."""
+    self.assertIsRunningChannel(ctx)
+    self.running = State.PAUSED
+    for member in list(self.muted):
+      await self.unmute(member)
+
+  @commands.command(help=HELP_RESUME)
+  async def resume(self, ctx, *args):
+    """(mods) Resume the speaking queue."""
+    self.assertIsRunningChannel(ctx)
+    if self.running != Start.PAUSED:
+      print('resume(): state %r; do nothing' % self.running)
+      return
+    for member in self.voice_channel.members:
+      await self.mute(member)
+    if self.active:
+      a, self.active = self.active, None
+      self.addToQueue(ctx, a, 0)
+    self.running = State.RUNNING
 
 
 def main():
