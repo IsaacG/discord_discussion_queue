@@ -242,6 +242,7 @@ class TalkQueue(commands.Cog):
     await self.addToQueue(ctx, member, pos - 1)
 
   @commands.command(help=HELP_TOPIC)
+  @commands.cooldown(1, 2, commands.BucketType.channel)
   async def topic(self, ctx, *args):
     """(mod) Set the topic."""
     self.assertIsModAndRunning(ctx)
@@ -249,6 +250,7 @@ class TalkQueue(commands.Cog):
     self.setTopic(ctx)
 
   @commands.command(help=HELP_ROUND)
+  @commands.cooldown(1, 10, commands.BucketType.channel)
   async def round(self, ctx, *args):
     """(mod) Add everyone to the queue."""
     self.assertIsModAndRunning(ctx)
@@ -316,6 +318,7 @@ class TalkQueue(commands.Cog):
       self.send('Removed %s from the queue.' % member.display_name)
 
   @commands.command(help=HELP_NEXT)
+  @commands.cooldown(1, 1, commands.BucketType.channel)
   async def next(self, ctx, *args):
     """Finish speaking and allow the next speaker."""
     self.assertIsRunningChannel(ctx)
@@ -337,6 +340,7 @@ class TalkQueue(commands.Cog):
     await self.setActive(ctx)
 
   @commands.command(help=HELP_QUEUE)
+  @commands.cooldown(1, 5, commands.BucketType.channel)
   async def queue(self, ctx, *args):
     """Display the queue."""
     self.assertIsRunningChannel(ctx)
