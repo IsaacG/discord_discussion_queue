@@ -1,6 +1,6 @@
 #!/bin/python
 
-from . import bot
+from . import talk_queue
 
-TalkQueue = bot.TalkQueue
+TalkQueue = talk_queue.TalkQueue
 
