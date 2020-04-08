@@ -1,7 +1,6 @@
 #!/bin/python
 
 import discord
-import dotenv
 import enum
 import logging
 import os
@@ -383,11 +382,6 @@ class TalkQueue(commands.Cog):
 
 
 def main():
-  if sys.stdout.isatty():
-    logging.basicConfig(stream=sys.stdout, level=logging.INFO)
-  else:
-    logging.basicConfig(stream=sys.stderr, level=logging.WARNING)
-  dotenv.load_dotenv()
   bot = commands.Bot(command_prefix='!')
   bot.add_cog(TalkQueue())
   bot.run(os.getenv('DISCORD_TOKEN'))
