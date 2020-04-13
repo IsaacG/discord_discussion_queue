@@ -87,16 +87,16 @@ class TalkQueue(commands.Cog):
       if pos is None:
         pos = len(self.queue)
       self.queue.insert(pos, member)
-      if self.active:
-        await self.send(ctx, 'Added: %s (position %d). %s' % (member.display_name, len(self.queue), self.getQueue()))
-      await self.setActive(ctx)
+      if not self.active:
+        await self.setActive(ctx)
+      await self.send(ctx, 'Added: %s (position %d). %s' % (member.display_name, len(self.queue), self.getQueue()))
 
   async def setActive(self, ctx):
     """Set a member to the active talker, unmuting them."""
     if self.active:
       logging.info('setActive(): already got someone active; nothing to do here.')
 
-    while self.queue:
+    while not self.active and self.queue:
       member = self.queue.pop(0)
       if not member.voice:
         logging.info('setActive(%s): member is not on voice', member.display_name)
@@ -110,10 +110,9 @@ class TalkQueue(commands.Cog):
         msg.append('topic: %s' % self.topic)
       msg.append(self.getQueue())
       await self.send(ctx, ' | '.join(msg))
-      return
+      break
     else:
       await self.send(ctx, 'There is no one in the queue.')
-      return
 
   def getQueue(self, member=None, full=False):
     """String output of the queue."""
@@ -128,10 +127,13 @@ class TalkQueue(commands.Cog):
         q.append('%s is #%d' % (member.display_name, self.queue.index(member) + 1))
       else:
         q.append('%s is not queued' % member.display_name)
-    if full:
-      q.append('%d waiting: %s' % (len(self.queue), ', '.join(m.display_name for m in self.queue)))
+    if self.queue:
+      if full:
+        q.append('%d waiting: %s' % (len(self.queue), ', '.join(m.display_name for m in self.queue)))
+      else:
+        q.append('Next %d of %d: %s' % (min(len(self.queue), 5), len(self.queue), ', '.join(m.display_name for m in self.queue[:5])))
     else:
-      q.append('Next %d of %d: %s' % (min(len(self.queue), 5), len(self.queue), ', '.join(m.display_name for m in self.queue[:5])))
+      q.append('None on remaining in the queue')
     return ' | '.join(q)
 
   def isMod(self, member):
